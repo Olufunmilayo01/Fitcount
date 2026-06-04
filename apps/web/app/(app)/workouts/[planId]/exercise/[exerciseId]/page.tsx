@@ -39,6 +39,7 @@ function ExerciseAnimationPlayer({ exercise, steps, gender }: {
   const {
     playStart, playStepTick, playPause, playComplete,
     speak, voiceEnabled, voicesReady, toggleVoice,
+    kokoroStatus, kokoroProgress,
   } = useExerciseAudio()
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -381,7 +382,13 @@ function ExerciseAnimationPlayer({ exercise, steps, gender }: {
             voiceEnabled ? 'bg-green-50 border-green-300 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
           }`}>
           {voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-          {voiceEnabled ? 'Voice on' : voicesReady ? 'Voice off' : 'Voice (loading…)'}
+          {voiceEnabled
+            ? (kokoroStatus === 'loading'
+                ? `Loading voice… ${kokoroProgress}%`
+                : kokoroStatus === 'ready'
+                ? 'Voice on (HD)'
+                : 'Voice on')
+            : 'Voice off'}
         </button>
       </div>
     </div>

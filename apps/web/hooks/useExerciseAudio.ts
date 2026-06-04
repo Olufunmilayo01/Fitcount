@@ -3,54 +3,52 @@
 /**
  * useExerciseAudio
  *
- * Plays pre-generated real acoustic WAV samples (bell chime, hand drum,
- * descending pad, completion chord) using the HTML Audio API.
- * Sounds are generated via Python physics-based synthesis and embedded
- * as base64 data URIs — no external files, no library loading issues.
+ * Audio feedback for the exercise player.
+ *
+ * Sound effects:   pre-generated real acoustic WAV samples (bell, drum, chord)
+ * Voice guidance:  Kokoro.js neural TTS (af_heart voice — Grade A, warm & soothing)
+ *                  Falls back to browser SpeechSynthesis if Kokoro hasn't loaded yet.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { BELL, CLICK, PAUSE, COMPLETE, COUNTDOWN } from '@/lib/audio-samples'
+import { useKokoroTTS } from './useKokoroTTS'
 
-// ─── Audio player ─────────────────────────────────────────────────────────────
+// ─── Sound effect player ──────────────────────────────────────────────────────
 
 function playAudio(src: string, volume = 1.0) {
   if (typeof window === 'undefined') return
   try {
-    const audio = new Audio(src)
-    audio.volume = Math.min(1, Math.max(0, volume))
-    audio.play().catch(() => { /* blocked before user gesture */ })
+    const a    = new Audio(src)
+    a.volume   = Math.min(1, Math.max(0, volume))
+    a.play().catch(() => { /* blocked before first gesture — ignore */ })
   } catch { /* ignore */ }
 }
 
-// ─── Voice helper ─────────────────────────────────────────────────────────────
+// ─── Browser TTS fallback ─────────────────────────────────────────────────────
 
-function getBestVoice(): SpeechSynthesisVoice | null {
+function getBestBrowserVoice(): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null
   const voices = window.speechSynthesis.getVoices()
-
-  // Priority: natural/neural voices first
-  const preferred = [
-    // macOS / iOS
-    'Samantha', 'Karen', 'Moira', 'Tessa', 'Veena',
-    // Windows / Edge neural voices
-    'Aria', 'Jenny', 'Ana', 'Emma', 'Michelle',
-    // Chrome / Android
-    'Google US English', 'Google UK English Female',
-  ]
-
+  const preferred = ['Samantha','Karen','Moira','Tessa','Google US English',
+                     'Aria','Jenny','Emma','Michelle']
   for (const name of preferred) {
     const v = voices.find(v => v.name.toLowerCase().includes(name.toLowerCase()))
     if (v) return v
   }
+  return voices.find(v => v.lang === 'en-US') ?? voices.find(v => v.lang.startsWith('en')) ?? null
+}
 
-  // Fallback: any English female-ish voice
-  return (
-    voices.find(v => v.lang === 'en-US' && /female|woman|girl/i.test(v.name)) ??
-    voices.find(v => v.lang === 'en-US') ??
-    voices.find(v => v.lang.startsWith('en-')) ??
-    null
-  )
+function browserSpeak(text: string, rate = 0.86) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return
+  window.speechSynthesis.cancel()
+  const utter   = new SpeechSynthesisUtterance(text)
+  utter.rate    = rate
+  utter.pitch   = 1.0
+  utter.volume  = 1.0
+  const voice   = getBestBrowserVoice()
+  if (voice) utter.voice = voice
+  window.speechSynthesis.speak(utter)
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -58,6 +56,7 @@ function getBestVoice(): SpeechSynthesisVoice | null {
 export function useExerciseAudio() {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [voicesReady,  setVoicesReady]  = useState(false)
+  const kokoro = useKokoroTTS()
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
@@ -69,68 +68,51 @@ export function useExerciseAudio() {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', check)
   }, [])
 
-  // Warm bell chime double-strike
-  const playStart = useCallback(() => {
-    playAudio(BELL, 0.8)
-  }, [])
-
-  // Soft hand-drum tap
-  const playStepTick = useCallback(() => {
-    playAudio(CLICK, 0.7)
-  }, [])
-
-  // Two descending notes + cancel voice
-  const playPause = useCallback(() => {
+  // ── Sound effects (always active, no loading needed) ─────────────────────
+  const playStart     = useCallback(() => playAudio(BELL,     0.80), [])
+  const playStepTick  = useCallback(() => playAudio(CLICK,    0.70), [])
+  const playPause     = useCallback(() => {
     playAudio(PAUSE, 0.65)
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
-  }, [])
+    if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
+    kokoro.cancelSpeech()
+  }, [kokoro])
+  const playComplete  = useCallback(() => playAudio(COMPLETE, 0.85), [])
 
-  // Warm C-major arpeggio then chord
-  const playComplete = useCallback(() => {
-    playAudio(COMPLETE, 0.85)
-  }, [])
-
-  // Voice guidance with optional countdown bell overlay
+  // ── Voice guidance — Kokoro with browser TTS fallback ─────────────────────
   const speak = useCallback(
-    (stepNumber: number, title: string, instruction: string) => {
+    async (stepNumber: number, title: string, instruction: string) => {
       if (!voiceEnabled) return
-      if (typeof window === 'undefined' || !window.speechSynthesis) return
 
-      const doSpeak = (attempt = 0) => {
-        window.speechSynthesis.cancel()
-        const voice = getBestVoice()
-        if (!voice && attempt < 3) {
-          setTimeout(() => doSpeak(attempt + 1), 280)
-          return
-        }
+      const isCountdown = stepNumber === 0
+      const text = isCountdown
+        ? instruction
+        : `Step ${stepNumber}. ${title}. ${instruction}`
 
-        // stepNumber 0 = raw countdown digit
-        const isCountdown = stepNumber === 0
-        const text = isCountdown
-          ? instruction
-          : `Step ${stepNumber}. ${title}. ${instruction}`
-
-        const utter   = new SpeechSynthesisUtterance(text)
-        utter.rate    = isCountdown ? 1.05 : 0.86
-        utter.pitch   = isCountdown ? 1.0  : 1.0
-        utter.volume  = 1.0
-        if (voice) utter.voice = voice
-        window.speechSynthesis.speak(utter)
-
-        // Overlay pitched bell for last 5 countdown numbers
-        if (isCountdown) {
-          const n = parseInt(instruction, 10)
-          if (n >= 1 && n <= 5 && COUNTDOWN[n]) {
-            playAudio(COUNTDOWN[n], 0.6)
-          }
-        }
+      // Overlay a pitched bell on countdown numbers
+      if (isCountdown) {
+        const n = parseInt(instruction, 10)
+        if (n >= 1 && n <= 5 && COUNTDOWN[n]) playAudio(COUNTDOWN[n], 0.55)
       }
 
-      doSpeak()
+      if (kokoro.status === 'ready') {
+        // Kokoro neural TTS — warm, human-sounding
+        // Use af_heart (Grade A) for guidance, faster rate for countdown numbers
+        await kokoro.speak(text, 'af_heart', 0.95)
+      } else {
+        // Fallback: browser TTS while Kokoro is loading or if it failed
+        browserSpeak(text, isCountdown ? 1.05 : 0.86)
+
+        // If Kokoro hasn't started loading yet, kick off the download in background
+        // so it's ready from the next step onward
+        if (kokoro.status === 'idle') {
+          // Small delay so audio playback isn't blocked by model initialisation
+          setTimeout(() => {
+            kokoro.speak('', 'af_heart', 0).catch(() => {})   // triggers load
+          }, 500)
+        }
+      }
     },
-    [voiceEnabled]
+    [voiceEnabled, kokoro]
   )
 
   const toggleVoice = useCallback(() => setVoiceEnabled(v => !v), [])
@@ -144,5 +126,8 @@ export function useExerciseAudio() {
     voiceEnabled,
     voicesReady,
     toggleVoice,
+    // Expose Kokoro status so the UI can show a loading indicator
+    kokoroStatus:   kokoro.status,
+    kokoroProgress: kokoro.loadProgress,
   }
 }
