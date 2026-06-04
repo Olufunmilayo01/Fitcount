@@ -3,25 +3,30 @@
 /**
  * useExerciseAudio
  *
- * Audio feedback for the exercise player.
+ * Three-tier voice system (best quality first):
+ *   1. ElevenLabs (Rachel voice) — warm, natural, human-quality
+ *      Requires ELEVENLABS_API_KEY in .env.local. Free tier: 10k chars/month.
+ *   2. Kokoro.js  — offline neural TTS, Grade-A af_heart voice (~40MB download)
+ *      Falls back to this while ElevenLabs key not configured.
+ *   3. Browser SpeechSynthesis — instant, always available, robotic-ish
+ *      Used as last resort or while Kokoro is loading.
  *
- * Sound effects:   pre-generated real acoustic WAV samples (bell, drum, chord)
- * Voice guidance:  Kokoro.js neural TTS (af_heart voice — Grade A, warm & soothing)
- *                  Falls back to browser SpeechSynthesis if Kokoro hasn't loaded yet.
+ * Sound effects (bell, click, chord) use pre-generated acoustic WAV samples.
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { BELL, CLICK, PAUSE, COMPLETE, COUNTDOWN } from '@/lib/audio-samples'
-import { useKokoroTTS } from './useKokoroTTS'
+import { useKokoroTTS }      from './useKokoroTTS'
+import { useElevenLabsTTS }  from './useElevenLabsTTS'
 
-// ─── Sound effect player ──────────────────────────────────────────────────────
+// ─── Acoustic sound effects ───────────────────────────────────────────────────
 
 function playAudio(src: string, volume = 1.0) {
   if (typeof window === 'undefined') return
   try {
-    const a    = new Audio(src)
-    a.volume   = Math.min(1, Math.max(0, volume))
-    a.play().catch(() => { /* blocked before first gesture — ignore */ })
+    const a = new Audio(src)
+    a.volume = Math.min(1, Math.max(0, volume))
+    a.play().catch(() => {})
   } catch { /* ignore */ }
 }
 
@@ -30,9 +35,7 @@ function playAudio(src: string, volume = 1.0) {
 function getBestBrowserVoice(): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null
   const voices = window.speechSynthesis.getVoices()
-  const preferred = ['Samantha','Karen','Moira','Tessa','Google US English',
-                     'Aria','Jenny','Emma','Michelle']
-  for (const name of preferred) {
+  for (const name of ['Samantha','Karen','Moira','Google US English','Aria','Jenny','Emma']) {
     const v = voices.find(v => v.name.toLowerCase().includes(name.toLowerCase()))
     if (v) return v
   }
@@ -56,6 +59,8 @@ function browserSpeak(text: string, rate = 0.86) {
 export function useExerciseAudio() {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [voicesReady,  setVoicesReady]  = useState(false)
+
+  const eleven = useElevenLabsTTS()
   const kokoro = useKokoroTTS()
 
   useEffect(() => {
@@ -68,66 +73,67 @@ export function useExerciseAudio() {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', check)
   }, [])
 
-  // ── Sound effects (always active, no loading needed) ─────────────────────
-  const playStart     = useCallback(() => playAudio(BELL,     0.80), [])
-  const playStepTick  = useCallback(() => playAudio(CLICK,    0.70), [])
-  const playPause     = useCallback(() => {
+  // ── Sound effects ─────────────────────────────────────────────────────────
+  const playStart    = useCallback(() => playAudio(BELL,     0.80), [])
+  const playStepTick = useCallback(() => playAudio(CLICK,    0.70), [])
+  const playPause    = useCallback(() => {
     playAudio(PAUSE, 0.65)
-    if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
+    window.speechSynthesis?.cancel()
+    eleven.cancel()
     kokoro.cancelSpeech()
-  }, [kokoro])
-  const playComplete  = useCallback(() => playAudio(COMPLETE, 0.85), [])
+  }, [eleven, kokoro])
+  const playComplete = useCallback(() => playAudio(COMPLETE, 0.85), [])
 
-  // ── Voice guidance — Kokoro with browser TTS fallback ─────────────────────
+  // ── Voice guidance — three-tier waterfall ─────────────────────────────────
   const speak = useCallback(
     async (stepNumber: number, title: string, instruction: string) => {
       if (!voiceEnabled) return
 
       const isCountdown = stepNumber === 0
-      const text = isCountdown
-        ? instruction
-        : `Step ${stepNumber}. ${title}. ${instruction}`
+      const text = isCountdown ? instruction : `Step ${stepNumber}. ${title}. ${instruction}`
 
-      // Overlay a pitched bell on countdown numbers
+      // Overlay pitched bell on countdown numbers
       if (isCountdown) {
         const n = parseInt(instruction, 10)
         if (n >= 1 && n <= 5 && COUNTDOWN[n]) playAudio(COUNTDOWN[n], 0.55)
       }
 
-      if (kokoro.status === 'ready') {
-        // Kokoro neural TTS — warm, human-sounding
-        // Use af_heart (Grade A) for guidance, faster rate for countdown numbers
-        await kokoro.speak(text, 'af_heart', 0.95)
-      } else {
-        // Fallback: browser TTS while Kokoro is loading or if it failed
-        browserSpeak(text, isCountdown ? 1.05 : 0.86)
+      // Tier 1: ElevenLabs (best quality — sounds like the Synthesia voice)
+      const didElevenPlay = await eleven.speak(text, undefined, 0.95)
+      if (didElevenPlay) return
 
-        // If Kokoro hasn't started loading yet, kick off the download in background
-        // so it's ready from the next step onward
-        if (kokoro.status === 'idle') {
-          // Small delay so audio playback isn't blocked by model initialisation
-          setTimeout(() => {
-            kokoro.speak('', 'af_heart', 0).catch(() => {})   // triggers load
-          }, 500)
-        }
+      // Tier 2: Kokoro neural TTS (offline, Grade-A af_heart voice)
+      if (kokoro.status === 'ready') {
+        await kokoro.speak(text, 'af_heart', 0.95)
+        return
+      }
+
+      // Tier 3: Browser SpeechSynthesis (always available, fallback)
+      browserSpeak(text, isCountdown ? 1.05 : 0.86)
+
+      // Kick off Kokoro load in background if not yet started
+      if (kokoro.status === 'idle') {
+        setTimeout(() => kokoro.speak('', 'af_heart', 0).catch(() => {}), 600)
       }
     },
-    [voiceEnabled, kokoro]
+    [voiceEnabled, eleven, kokoro]
   )
 
   const toggleVoice = useCallback(() => setVoiceEnabled(v => !v), [])
 
+  // Voice quality label shown in the button
+  const voiceLabel = (() => {
+    if (!voiceEnabled) return 'Voice off'
+    // ElevenLabs ready (API key configured)
+    // We don't know this client-side until first call; just show current state
+    if (kokoro.status === 'loading') return `Loading voice… ${kokoro.loadProgress}%`
+    if (kokoro.status === 'ready')   return 'Voice on (HD)'
+    return 'Voice on'
+  })()
+
   return {
-    playStart,
-    playStepTick,
-    playPause,
-    playComplete,
-    speak,
-    voiceEnabled,
-    voicesReady,
-    toggleVoice,
-    // Expose Kokoro status so the UI can show a loading indicator
-    kokoroStatus:   kokoro.status,
-    kokoroProgress: kokoro.loadProgress,
+    playStart, playStepTick, playPause, playComplete,
+    speak, voiceEnabled, voicesReady, toggleVoice, voiceLabel,
+    kokoroStatus: kokoro.status, kokoroProgress: kokoro.loadProgress,
   }
 }
