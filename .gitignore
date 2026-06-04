@@ -1,0 +1,39 @@
+# Dependencies
+apps/web/node_modules/
+apps/api/vendor/
+
+# Build outputs
+apps/web/.next/
+apps/web/out/
+apps/api/bin/
+
+# Environment files (contain secrets)
+apps/web/.env.local
+apps/api/.env
+.env
+
+# Go compiled binaries and cache
+apps/api/*.exe
+apps/api/*.test
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+
+# Go module download cache (in repo we only keep go.sum)
+# go.sum is intentionally tracked
+
+# Logs
+*.log
+/tmp/
+
+# Next.js cache
+apps/web/.next/
+apps/web/.turbo/
+
+# Uploaded user images (these are local assets, not source code)
+# They can be re-uploaded via /setup
+apps/web/public/images/figure-female.png
+apps/web/public/images/figure-male.png
