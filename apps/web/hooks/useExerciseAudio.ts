@@ -1,85 +1,26 @@
 'use client'
 
 /**
- * useExerciseAudio — Tone.js powered audio for the exercise player.
+ * useExerciseAudio
  *
- * Sounds:
- *   playStart()        — warm singing-bowl double strike (let's begin)
- *   playStepTick()     — gentle wood-block tap (step advance)
- *   playPause()        — soft descending two-note (pause)
- *   playComplete()     — warm C-major arpeggio then chord (exercise done)
- *   speak()            — browser TTS voice guidance
- *
- * All sounds use Tone.js with reverb for a natural, spa-like quality.
- * Tone.js is loaded lazily (only on first user gesture) to keep page fast.
+ * Plays pre-generated real acoustic WAV samples (bell chime, hand drum,
+ * descending pad, completion chord) using the HTML Audio API.
+ * Sounds are generated via Python physics-based synthesis and embedded
+ * as base64 data URIs — no external files, no library loading issues.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { BELL, CLICK, PAUSE, COMPLETE, COUNTDOWN } from '@/lib/audio-samples'
 
-// ─── Tone.js lazy loader ──────────────────────────────────────────────────────
+// ─── Audio player ─────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ToneLib = any
-let toneCache: ToneLib | null = null
-
-async function getTone(): Promise<ToneLib> {
-  if (toneCache) return toneCache
-  const Tone = await import('tone')
-  await Tone.start()
-  toneCache = Tone
-  return Tone
-}
-
-// ─── Instrument builder ───────────────────────────────────────────────────────
-
-async function buildInstruments(Tone: ToneLib) {
-  // Shared reverb — adds room depth to all sounds
-  const reverb = new Tone.Reverb({ decay: 2.2, wet: 0.38 }).toDestination()
-  await reverb.generate()
-
-  const limiter = new Tone.Limiter(-4).toDestination()
-
-  // Warm metallic bell — used for play/start (singing bowl feel)
-  const bowl = new Tone.MetalSynth({
-    frequency: 440,
-    envelope: { attack: 0.01, decay: 1.6, release: 1.0 },
-    harmonicity: 3.1,
-    modulationIndex: 8,
-    resonance: 3800,
-    octaves: 1.2,
-    volume: -8,
-  }).connect(reverb)
-
-  // Padded membrane thump — used for step ticks (like a soft hand drum)
-  const block = new Tone.MembraneSynth({
-    pitchDecay: 0.03,
-    octaves: 3.5,
-    envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.08 },
-    volume: -11,
-  }).connect(limiter)
-
-  // Pure sine bell — used for countdown numbers (clear, calm)
-  const bell = new Tone.Synth({
-    oscillator: { type: 'sine' },
-    envelope: { attack: 0.005, decay: 0.5, sustain: 0.05, release: 0.7 },
-    volume: -13,
-  }).connect(reverb)
-
-  // Warm triangle pad — used for pause
-  const pad = new Tone.Synth({
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.06, decay: 0.35, sustain: 0.18, release: 1.0 },
-    volume: -14,
-  }).connect(reverb)
-
-  // Polyphonic synth — used for completion chord
-  const poly = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'sine' },
-    envelope: { attack: 0.02, decay: 0.7, sustain: 0.35, release: 1.6 },
-    volume: -10,
-  }).connect(reverb)
-
-  return { bowl, block, bell, pad, poly }
+function playAudio(src: string, volume = 1.0) {
+  if (typeof window === 'undefined') return
+  try {
+    const audio = new Audio(src)
+    audio.volume = Math.min(1, Math.max(0, volume))
+    audio.play().catch(() => { /* blocked before user gesture */ })
+  } catch { /* ignore */ }
 }
 
 // ─── Voice helper ─────────────────────────────────────────────────────────────
@@ -87,11 +28,25 @@ async function buildInstruments(Tone: ToneLib) {
 function getBestVoice(): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null
   const voices = window.speechSynthesis.getVoices()
+
+  // Priority: natural/neural voices first
+  const preferred = [
+    // macOS / iOS
+    'Samantha', 'Karen', 'Moira', 'Tessa', 'Veena',
+    // Windows / Edge neural voices
+    'Aria', 'Jenny', 'Ana', 'Emma', 'Michelle',
+    // Chrome / Android
+    'Google US English', 'Google UK English Female',
+  ]
+
+  for (const name of preferred) {
+    const v = voices.find(v => v.name.toLowerCase().includes(name.toLowerCase()))
+    if (v) return v
+  }
+
+  // Fallback: any English female-ish voice
   return (
-    voices.find(v =>
-      v.lang.startsWith('en') &&
-      /samantha|karen|victoria|zira|allison|aria|ava|claire|moira/i.test(v.name)
-    ) ??
+    voices.find(v => v.lang === 'en-US' && /female|woman|girl/i.test(v.name)) ??
     voices.find(v => v.lang === 'en-US') ??
     voices.find(v => v.lang.startsWith('en-')) ??
     null
@@ -103,7 +58,6 @@ function getBestVoice(): SpeechSynthesisVoice | null {
 export function useExerciseAudio() {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [voicesReady,  setVoicesReady]  = useState(false)
-  const instRef = useRef<Awaited<ReturnType<typeof buildInstruments>> | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
@@ -115,69 +69,30 @@ export function useExerciseAudio() {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', check)
   }, [])
 
-  const getInst = useCallback(async () => {
-    if (instRef.current) return instRef.current
-    const Tone = await getTone()
-    instRef.current = await buildInstruments(Tone)
-    return instRef.current
+  // Warm bell chime double-strike
+  const playStart = useCallback(() => {
+    playAudio(BELL, 0.8)
   }, [])
 
-  // Warm singing-bowl double strike
-  const playStart = useCallback(async () => {
-    try {
-      const { bowl } = await getInst()
-      const Tone = await getTone()
-      const now = Tone.now()
-      bowl.triggerAttackRelease('A4', '2n', now)
-      bowl.triggerAttackRelease('E5', '4n', now + 0.2)
-    } catch { /* AudioContext not available or blocked */ }
-  }, [getInst])
-
   // Soft hand-drum tap
-  const playStepTick = useCallback(async () => {
-    try {
-      const { block } = await getInst()
-      block.triggerAttackRelease('C2', '8n')
-    } catch { /* ignore */ }
-  }, [getInst])
+  const playStepTick = useCallback(() => {
+    playAudio(CLICK, 0.7)
+  }, [])
 
   // Two descending notes + cancel voice
-  const playPause = useCallback(async () => {
-    try {
-      const { pad } = await getInst()
-      const Tone = await getTone()
-      const now = Tone.now()
-      pad.triggerAttackRelease('G4', '4n', now)
-      pad.triggerAttackRelease('E4', '4n', now + 0.28)
-    } catch { /* ignore */ }
+  const playPause = useCallback(() => {
+    playAudio(PAUSE, 0.65)
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
-  }, [getInst])
+  }, [])
 
-  // Ascending pitched bell per countdown number (5→A4, 4→B4, 3→C5, 2→D5, 1→E5)
-  const playCountdownBell = useCallback(async (n: number) => {
-    try {
-      const { bell } = await getInst()
-      const noteMap: Record<number, string> = { 5:'A4', 4:'B4', 3:'C5', 2:'D5', 1:'E5' }
-      bell.triggerAttackRelease(noteMap[n] ?? 'C5', '8n')
-    } catch { /* ignore */ }
-  }, [getInst])
+  // Warm C-major arpeggio then chord
+  const playComplete = useCallback(() => {
+    playAudio(COMPLETE, 0.85)
+  }, [])
 
-  // C-major arpeggio then full chord
-  const playComplete = useCallback(async () => {
-    try {
-      const { poly } = await getInst()
-      const Tone = await getTone()
-      const now = Tone.now()
-      poly.triggerAttackRelease('C4',  '4n', now)
-      poly.triggerAttackRelease('E4',  '4n', now + 0.14)
-      poly.triggerAttackRelease('G4',  '4n', now + 0.28)
-      poly.triggerAttackRelease(['C4','E4','G4','C5'], '2n', now + 0.46)
-    } catch { /* ignore */ }
-  }, [getInst])
-
-  // Voice guidance with countdown bell overlay
+  // Voice guidance with optional countdown bell overlay
   const speak = useCallback(
     (stepNumber: number, title: string, instruction: string) => {
       if (!voiceEnabled) return
@@ -186,31 +101,48 @@ export function useExerciseAudio() {
       const doSpeak = (attempt = 0) => {
         window.speechSynthesis.cancel()
         const voice = getBestVoice()
-        if (!voice && attempt < 3) { setTimeout(() => doSpeak(attempt + 1), 280); return }
+        if (!voice && attempt < 3) {
+          setTimeout(() => doSpeak(attempt + 1), 280)
+          return
+        }
 
-        const text = stepNumber === 0
-          ? instruction                                        // raw countdown digit
+        // stepNumber 0 = raw countdown digit
+        const isCountdown = stepNumber === 0
+        const text = isCountdown
+          ? instruction
           : `Step ${stepNumber}. ${title}. ${instruction}`
 
         const utter   = new SpeechSynthesisUtterance(text)
-        utter.rate    = stepNumber === 0 ? 1.1 : 0.88
-        utter.pitch   = stepNumber === 0 ? 1.1 : 1.0
+        utter.rate    = isCountdown ? 1.05 : 0.86
+        utter.pitch   = isCountdown ? 1.0  : 1.0
         utter.volume  = 1.0
         if (voice) utter.voice = voice
         window.speechSynthesis.speak(utter)
 
-        if (stepNumber === 0) {
+        // Overlay pitched bell for last 5 countdown numbers
+        if (isCountdown) {
           const n = parseInt(instruction, 10)
-          if (n >= 1 && n <= 5) playCountdownBell(n)
+          if (n >= 1 && n <= 5 && COUNTDOWN[n]) {
+            playAudio(COUNTDOWN[n], 0.6)
+          }
         }
       }
 
       doSpeak()
     },
-    [voiceEnabled, playCountdownBell]
+    [voiceEnabled]
   )
 
   const toggleVoice = useCallback(() => setVoiceEnabled(v => !v), [])
 
-  return { playStart, playStepTick, playPause, playComplete, speak, voiceEnabled, voicesReady, toggleVoice }
+  return {
+    playStart,
+    playStepTick,
+    playPause,
+    playComplete,
+    speak,
+    voiceEnabled,
+    voicesReady,
+    toggleVoice,
+  }
 }
