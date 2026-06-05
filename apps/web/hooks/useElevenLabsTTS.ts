@@ -27,8 +27,8 @@ async function checkApiAvailable(): Promise<Status> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: '' }),   // empty → will get 400, not 503
     })
-    // 400 = API key is set (validation error), 503 = no key configured
-    apiAvailable = res.status === 503 ? 'no-key' : 'ready'
+    // The route is always available (uses Google TTS if no EL key)
+    apiAvailable = res.status === 500 ? 'error' : 'ready'
   } catch {
     apiAvailable = 'error'
   }
@@ -40,7 +40,7 @@ export function useElevenLabsTTS() {
 
   const speak = useCallback(async (
     text: string,
-    voiceId?: string,
+    _voiceId?: string,   // unused — server picks the voice
     volume = 1.0,
   ): Promise<boolean> => {
     // Returns true if ElevenLabs played, false if caller should use fallback
@@ -49,7 +49,7 @@ export function useElevenLabsTTS() {
     const status = await checkApiAvailable()
     if (status !== 'ready') return false
 
-    const cacheKey = `${voiceId ?? 'default'}::${text}`
+    const cacheKey = text
     let url = mp3Cache.get(cacheKey)
 
     if (!url) {
@@ -57,7 +57,7 @@ export function useElevenLabsTTS() {
         const res = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voiceId }),
+          body: JSON.stringify({ text }),
         })
         if (!res.ok) return false
         const blob = await res.blob()
