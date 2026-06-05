@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Helper around docker compose for the polyglot devbox.
+#   ./devbox build     build the image
+#   ./devbox up        start dev + db (detached)
+#   ./devbox shell     open a shell in the dev container
+#   ./devbox db        open psql against the Postgres service
+#   ./devbox tools     start optional extras (Adminer DB UI on :8090)
+#   ./devbox stop      stop containers (keeps data)
+#   ./devbox down      remove containers (keeps named volumes / DB data)
+#   ./devbox nuke      remove containers AND volumes (DELETES DB data)
+#   ./devbox logs      follow logs
+#   ./devbox versions  print installed tool versions inside the box
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  build)    docker compose build "$@" ;;
+  up)       docker compose up -d "$@" ;;
+  shell)    docker compose exec dev bash -l ;;
+  db)       docker compose exec db psql -U "${POSTGRES_USER:-dev}" -d "${POSTGRES_DB:-app}" ;;
+  tools)    docker compose --profile tools up -d ;;
+  stop)     docker compose stop ;;
+  down)     docker compose down "$@" ;;
+  nuke)     docker compose down -v ;;
+  logs)     docker compose logs -f ;;
+  versions) docker compose exec dev bash -lc 'echo "go:    $(go version)"; echo "node:  $(node --version)  npm $(npm --version)"; echo "python:$(python3 --version)  uv $(uv --version)"; echo "psql:  $(psql --version)"; echo "gh:    $(gh --version | head -1)"' ;;
+  *)        grep -E '^#( |$)' "$0" | sed -E 's/^# ?//' ;;
+esac

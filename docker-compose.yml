@@ -1,0 +1,83 @@
+# Polyglot dev environment: a toolbox container + Postgres (+ optional Adminer).
+#
+#   cp .env.example .env          # adjust versions / ports / DB creds
+#   docker compose up -d          # start dev + db
+#   docker compose exec dev bash  # work inside the box
+# Or use the ./devbox helper.
+#
+# By default the container mounts THIS directory at /workspace. To develop a
+# different repo, set WORKSPACE in .env (e.g. WORKSPACE=../my-app) — or copy
+# the .devcontainer/ folder into that repo and "Reopen in Container".
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GO_VERSION: ${GO_VERSION:-1.25.7}
+        NODE_MAJOR: ${NODE_MAJOR:-24}
+    image: devbox:latest
+    container_name: devbox
+    init: true
+    environment:
+      # Ready-to-use connection info for the Postgres service below.
+      DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@db:5432/${POSTGRES_DB:-app}?sslmode=disable
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-dev}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-dev}
+      PGDATABASE: ${POSTGRES_DB:-app}
+    volumes:
+      - ${WORKSPACE:-.}:/workspace
+      # Persist language caches across rebuilds for fast installs.
+      - devbox-go-mod:/home/dev/go/pkg/mod
+      - devbox-go-build:/home/dev/.cache/go-build
+      - devbox-npm:/home/dev/.npm
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    ports:
+      # Common dev-server ports. Make your servers listen on 0.0.0.0 to be
+      # reachable from the host, e.g. `next dev -H 0.0.0.0` / `go run` bound to
+      # :8080. Add more here as needed.
+      - "${WEB_PORT:-3000}:3000"
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:${POSTGRES_VERSION:-16}
+    container_name: devbox-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    ports:
+      # Bound to localhost so it isn't reachable from other machines.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - devbox-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dev} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional web UI for the database. Start with: docker compose --profile tools up -d
+  adminer:
+    image: adminer:latest
+    container_name: devbox-adminer
+    profiles: [tools]
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8090}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  devbox-pgdata:
+  devbox-go-mod:
+  devbox-go-build:
+  devbox-npm:
