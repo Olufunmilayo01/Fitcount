@@ -124,6 +124,14 @@ func (r *UserRepo) SetOnboardingDone(ctx context.Context, userID string) error {
 	return err
 }
 
+func (r *UserRepo) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+		passwordHash, userID,
+	)
+	return err
+}
+
 func (r *UserRepo) AppendBadge(ctx context.Context, userID string, badge model.AwardedBadge) error {
 	badgeJSON, err := jsonMarshal(badge)
 	if err != nil {

@@ -158,7 +158,10 @@ function AuthForm() {
             <Input id="login-email" type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="you@example.com" required className="h-11" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="login-pass">Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="login-pass">Password</Label>
+              <Link href="/forgot-password" className="text-xs text-green-600 hover:underline">Forgot password?</Link>
+            </div>
             <Input id="login-pass" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" required className="h-11" />
           </div>
           <Button type="submit" disabled={loginMutation.isPending} className="w-full h-11 bg-green-600 hover:bg-green-700 font-semibold text-base">

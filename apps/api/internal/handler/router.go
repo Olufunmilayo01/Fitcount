@@ -2,9 +2,11 @@ package handler
 
 import (
 	"fitcount/api/internal/auth"
+	"fitcount/api/internal/email"
 	"fitcount/api/internal/repository"
 	"fitcount/api/internal/service"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,8 +34,11 @@ type Deps struct {
 	GoalSvc     *service.GoalService
 	BadgeSvc    *service.BadgeService
 
-	JWTSecret  string
-	CORSOrigin string
+	EmailSvc    *email.Service
+
+	JWTSecret   string
+	CORSOrigin  string
+	FrontendURL string
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -43,14 +48,24 @@ func NewRouter(d Deps) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{d.CORSOrigin},
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			if strings.HasPrefix(origin, "http://localhost:") {
+				return true
+			}
+			for _, o := range strings.Split(d.CORSOrigin, ",") {
+				if strings.TrimSpace(o) == origin {
+					return true
+				}
+			}
+			return false
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	authHandler := NewAuthHandler(d.AuthSvc, d.ProfileSvc, d.JWTSecret)
+	authHandler := NewAuthHandler(d.AuthSvc, d.ProfileSvc, d.JWTSecret, d.EmailSvc, d.FrontendURL)
 	profileHandler := NewProfileHandler(d.ProfileSvc, d.PlanSvc, d.GoalSvc)
 	planHandler := NewPlanHandler(d.PlanSvc, d.ProfileSvc)
 	exerciseHandler := NewExerciseHandler(d.ExerciseRepo)
@@ -64,6 +79,8 @@ func NewRouter(d Deps) http.Handler {
 		// Public auth routes
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
+		r.Post("/auth/forgot-password", authHandler.ForgotPassword)
+		r.Post("/auth/reset-password", authHandler.ResetPassword)
 
 		// Protected routes
 		r.Group(func(r chi.Router) {

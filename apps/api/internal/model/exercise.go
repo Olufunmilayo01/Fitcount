@@ -13,6 +13,7 @@ type Exercise struct {
 	FitnessLevel    string          `db:"fitness_level"    json:"fitness_level"`
 	DurationSeconds int             `db:"duration_seconds" json:"duration_seconds"`
 	MetValue        float64         `db:"met_value"        json:"met_value"`
+	VideoURL        *string         `db:"video_url"        json:"video_url,omitempty"`
 	Steps           json.RawMessage `db:"steps"            json:"steps,omitempty"`
 	IsActive        bool            `db:"is_active"        json:"is_active"`
 	CreatedAt       time.Time       `db:"created_at"       json:"created_at"`

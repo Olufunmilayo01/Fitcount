@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Droplets, Moon, Scale, Zap, Trophy, Target } from 'lucide-react'
 import { todayISO, mlToCups, formatDate } from '@/lib/utils'
 import Link from 'next/link'
+import { MoodCheck } from '@/components/dashboard/MoodCheck'
 
 const WATER_TARGET_ML = 2000
 const WATER_CUP_ML = 250
@@ -67,6 +68,9 @@ export default function DashboardPage() {
             <p className="text-sm text-green-600 font-medium mt-0.5">🔥 {streak}-day streak!</p>
           )}
         </div>
+
+        {/* Mood check + daily quote */}
+        <MoodCheck />
 
         {/* Quick stats grid */}
         <div className="grid grid-cols-2 gap-3">

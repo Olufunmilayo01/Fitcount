@@ -4,6 +4,7 @@ import (
 	"context"
 	"fitcount/api/internal/config"
 	"fitcount/api/internal/db"
+	"fitcount/api/internal/email"
 	"fitcount/api/internal/handler"
 	"fitcount/api/internal/repository"
 	"fitcount/api/internal/service"
@@ -33,10 +34,20 @@ func main() {
 	sleepRepo := repository.NewSleepRepo(database)
 	goalRepo := repository.NewGoalRepo(database)
 	badgeRepo := repository.NewBadgeRepo(database)
+	resetTokenRepo := repository.NewPasswordResetRepo(database)
+
+	// Email service (gracefully no-ops when SMTP_HOST is not set)
+	emailSvc := email.NewService(email.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		User:     cfg.SMTPUser,
+		Password: cfg.SMTPPassword,
+		From:     cfg.EmailFrom,
+	})
 
 	// Services (badge service created first; others depend on it)
 	badgeSvc := service.NewBadgeService(badgeRepo, userRepo, sessionRepo, logRepo, sleepRepo, planRepo)
-	authSvc := service.NewAuthService(userRepo)
+	authSvc := service.NewAuthService(userRepo, resetTokenRepo)
 	profileSvc := service.NewProfileService(userRepo)
 	sleepSvc := service.NewSleepService(sleepRepo)
 	goalSvc := service.NewGoalService(goalRepo)
@@ -61,8 +72,10 @@ func main() {
 		SleepSvc:     sleepSvc,
 		GoalSvc:      goalSvc,
 		BadgeSvc:     badgeSvc,
+		EmailSvc:     emailSvc,
 		JWTSecret:    cfg.JWTSecret,
 		CORSOrigin:   cfg.CORSOrigin,
+		FrontendURL:  cfg.FrontendURL,
 	})
 
 	srv := &http.Server{

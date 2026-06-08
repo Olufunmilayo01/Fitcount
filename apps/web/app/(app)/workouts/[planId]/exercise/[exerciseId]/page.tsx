@@ -8,6 +8,7 @@ import { workoutsApi } from '@/lib/api/workouts'
 import { profileApi } from '@/lib/api/profile'
 import { HumanFigureCanvas } from '@/components/exercise-player/HumanFigureCanvas'
 import { VideoSpritePlayer } from '@/components/exercise-player/VideoSpritePlayer'
+import { YouTubePlayer } from '@/components/exercise-player/YouTubePlayer'
 import { usePlayerStore } from '@/stores/exercisePlayerStore'
 import { getAnimation } from '@/lib/animations/stick-figures/index'
 import { Button } from '@/components/ui/button'
@@ -28,7 +29,7 @@ interface Props {
 }
 
 function ExerciseAnimationPlayer({ exercise, steps, gender }: {
-  exercise: { id: string; name: string; slug: string; category: string; duration_seconds: number }
+  exercise: { id: string; name: string; slug: string; category: string; duration_seconds: number; video_url?: string }
   steps: ExerciseStep[]
   gender: string
 }) {
@@ -259,9 +260,13 @@ function ExerciseAnimationPlayer({ exercise, steps, gender }: {
         ))}
       </div>
 
-      {/* Figure — sprite for walking exercises, animated photo for everything else */}
+      {/* Figure — YouTube for Asian Pilates, sprite for walking, stick figure for everything else */}
       <div className="px-4 py-2 bg-gradient-to-b from-gray-50/60 to-white flex justify-center">
-        {(exercise.category === 'tai_chi_walking' || exercise.category === 'interval_walking') ? (
+        {exercise.category === 'asian_pilates' && exercise.video_url ? (
+          <div className="w-full max-w-sm">
+            <YouTubePlayer embedUrl={exercise.video_url} title={exercise.name} />
+          </div>
+        ) : (exercise.category === 'tai_chi_walking' || exercise.category === 'interval_walking') ? (
           <VideoSpritePlayer
             category={exercise.category}
             animationKey={animKey}
@@ -486,7 +491,7 @@ export default function ExerciseDetailPage({ params }: Props) {
           {/* Animated guide */}
           <TabsContent value="guide" className="mt-4 space-y-4">
             <ExerciseAnimationPlayer
-              exercise={{ id: exercise.id, name: exercise.name, slug: exercise.slug, category: exercise.category, duration_seconds: exercise.duration_seconds }}
+              exercise={{ id: exercise.id, name: exercise.name, slug: exercise.slug, category: exercise.category, duration_seconds: exercise.duration_seconds, video_url: exercise.video_url }}
               steps={steps}
               gender={gender}
             />

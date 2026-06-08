@@ -2,10 +2,11 @@ export interface Exercise {
   id: string
   slug: string
   name: string
-  category: 'tai_chi_walking' | 'interval_walking' | 'hip' | 'core' | 'relaxation'
+  category: 'tai_chi_walking' | 'interval_walking' | 'hip' | 'core' | 'relaxation' | 'asian_pilates'
   fitness_level: 'beginner' | 'intermediate' | 'advanced'
   duration_seconds: number
   met_value: number
+  video_url?: string
   steps?: ExerciseStep[]
   is_active: boolean
   created_at: string

@@ -16,7 +16,7 @@ func NewExerciseRepo(db *sqlx.DB) *ExerciseRepo {
 }
 
 func (r *ExerciseRepo) List(ctx context.Context, f model.ExerciseFilter) ([]model.Exercise, error) {
-	query := `SELECT id, slug, name, category, fitness_level, duration_seconds, met_value, is_active, created_at
+	query := `SELECT id, slug, name, category, fitness_level, duration_seconds, met_value, video_url, is_active, created_at
 			  FROM exercises WHERE is_active = true`
 	args := []interface{}{}
 	i := 1
@@ -51,7 +51,7 @@ func (r *ExerciseRepo) GetByID(ctx context.Context, id string) (*model.Exercise,
 
 func (r *ExerciseRepo) ListByLevelAndCategories(ctx context.Context, level string, categories []string) ([]model.Exercise, error) {
 	query, args, err := sqlx.In(
-		`SELECT id, slug, name, category, fitness_level, duration_seconds, met_value, is_active, created_at
+		`SELECT id, slug, name, category, fitness_level, duration_seconds, met_value, video_url, is_active, created_at
 		 FROM exercises WHERE is_active = true AND fitness_level = ? AND category IN (?)
 		 ORDER BY category, duration_seconds`,
 		level, categories,
